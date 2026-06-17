@@ -6,7 +6,7 @@ Fallback implementation for when LLM APIs are available.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, cast, Any
 import json
 import yaml
 
@@ -60,10 +60,10 @@ Return ONLY valid JSON:
         """Initialize LLM client based on provider."""
         try:
             if self.provider == "openai":
-                import openai
+                import openai  # type: ignore
                 self._client = openai.OpenAI()
             elif self.provider == "anthropic":
-                import anthropic
+                import anthropic  # type: ignore
                 self._client = anthropic.Anthropic()
             elif self.provider == "local":
                 # Could use llama-cpp-python or similar
@@ -110,8 +110,8 @@ Return ONLY valid JSON:
     
     def _analyze_openai(self, text: str) -> LLMJudgeResult:
         """Analyze using OpenAI API."""
-        from openai import OpenAI
-        client: OpenAI = self._client
+        from openai import OpenAI  # type: ignore
+        client = cast(OpenAI, self._client)
         
         response = client.chat.completions.create(
             model=self.model,
@@ -124,13 +124,14 @@ Return ONLY valid JSON:
             response_format={"type": "json_object"}
         )
         
-        result_json = json.loads(response.choices[0].message.content)
+        content = response.choices[0].message.content
+        result_json = json.loads(content if content else "{}")
         return self._parse_result(result_json)
     
     def _analyze_anthropic(self, text: str) -> LLMJudgeResult:
         """Analyze using Anthropic API."""
-        import anthropic
-        client: anthropic.Anthropic = self._client
+        import anthropic  # type: ignore
+        client = cast(anthropic.Anthropic, self._client)
         
         response = client.messages.create(
             model=self.model,
@@ -140,7 +141,9 @@ Return ONLY valid JSON:
             messages=[{"role": "user", "content": text}]
         )
         
-        result_json = json.loads(response.content[0].text)
+        block = response.content[0]
+        content_text = getattr(block, "text", "")
+        result_json = json.loads(content_text if content_text else "{}")
         return self._parse_result(result_json)
     
     def _parse_result(self, data: Dict) -> LLMJudgeResult:

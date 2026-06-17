@@ -25,23 +25,26 @@ class EmbeddingDetector:
     """Detects prompt injection via semantic similarity to known attack patterns."""
     
     def __init__(self, config: Dict):
-        self.config = config.get("embedding", {})
+        detector_config = config.get("detector", config)
+        self.config = detector_config.get("embedding", config.get("embedding", {}))
         self.model_name = self.config.get("model", "sentence-transformers/all-MiniLM-L6-v2")
         self.device = self.config.get("device", "cpu")
         self.batch_size = self.config.get("batch_size", 32)
         self.reference_path = self.config.get("reference_injections_path", "configs/reference_injections.json")
         self.similarity_metric = self.config.get("similarity_metric", "cosine")
+        self.enabled = self.config.get("enabled", True)
         
         self._model = None
         self._reference_embeddings = None
         self._reference_texts = None
-        self._load_model()
-        self._load_references()
+        if self.enabled:
+            self._load_model()
+            self._load_references()
     
     def _load_model(self):
         """Load sentence transformer model."""
         try:
-            from sentence_transformers import SentenceTransformer
+            from sentence_transformers import SentenceTransformer  # type: ignore
             self._model = SentenceTransformer(self.model_name, device=self.device)
         except ImportError:
             print("Warning: sentence-transformers not installed. Embedding detector disabled.")
@@ -131,7 +134,7 @@ class EmbeddingDetector:
     
     def analyze(self, text: str) -> EmbeddingResult:
         """Analyze text for semantic similarity to known injections."""
-        if self._model is None or self._reference_embeddings is None:
+        if self._model is None or self._reference_embeddings is None or self._reference_texts is None:
             return EmbeddingResult(
                 score=0.0,
                 flags=["model_unavailable"],

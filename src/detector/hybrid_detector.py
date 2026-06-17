@@ -4,8 +4,9 @@ Combines tokenizer, embedding, and rule-based detection with configurable weight
 """
 
 from __future__ import annotations
+import copy
 from dataclasses import dataclass
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 from pathlib import Path
 import yaml
 
@@ -27,7 +28,7 @@ class HybridResult:
 class HybridDetector:
     """Main detection pipeline combining all detectors."""
     
-    def __init__(self, config_path: str = "config.yaml"):
+    def __init__(self, config_path: Union[str, Dict] = "config.yaml"):
         self.config = self._load_config(config_path)
         det_config = self.config.get("detector", {})
         
@@ -63,15 +64,21 @@ class HybridDetector:
         self._llm_judge = None
         self.llm_enabled = det_config.get("llm_judge", {}).get("enabled", False)
     
-    def _load_config(self, path: str) -> Dict:
+    def _load_config(self, path: Union[str, Dict]) -> Dict:
+        if isinstance(path, dict):
+            return path
         with open(path) as f:
             return yaml.safe_load(f)
     
-    def _init_llm_judge(self):
+    def _init_llm_judge(self, force: bool = False):
         """Lazy initialize LLM judge if enabled."""
-        if self._llm_judge is None and self.llm_enabled:
+        if self._llm_judge is None and (self.llm_enabled or force):
             from detector.llm_judge import LLMJudge
-            self._llm_judge = LLMJudge(self.config)
+            config = self.config
+            if force and not self.llm_enabled:
+                config = copy.deepcopy(self.config)
+                config.setdefault("detector", {}).setdefault("llm_judge", {})["enabled"] = True
+            self._llm_judge = LLMJudge(config)
     
     def analyze(self, text: str, use_llm_judge: bool = False) -> HybridResult:
         """Run full detection pipeline on input text."""
@@ -95,22 +102,33 @@ class HybridDetector:
             rules_result.flags
         )
         
-        # Calculate weighted score
+        # Calculate weighted score from available fast detectors.
+        active_detectors = ["tokenizer", "rules"]
+        if "model_unavailable" not in embedding_result.flags:
+            active_detectors.append("embedding")
+
+        active_weight = sum(self.weights.get(name, 0) for name in active_detectors) or 1.0
         weighted_score = sum(
             detector_scores[name] * self.weights.get(name, 0)
-            for name in ["tokenizer", "embedding", "rules"]
-        )
+            for name in active_detectors
+        ) / active_weight
         
         # Optional LLM Judge for edge cases
+        llm_result = None
         if use_llm_judge or (self.llm_enabled and self._should_use_llm(weighted_score)):
-            self._init_llm_judge()
+            self._init_llm_judge(force=use_llm_judge)
             if self._llm_judge:
                 llm_result = self._llm_judge.analyze(text)
                 detector_scores["llm_judge"] = llm_result.score
-                weighted_score = (
-                    weighted_score * (1 - self.weights.get("llm_judge", 0)) +
-                    llm_result.score * self.weights.get("llm_judge", 0)
+                llm_unavailable = any(
+                    flag in llm_result.flags
+                    for flag in ["llm_unavailable", "llm_error", "provider_not_implemented"]
                 )
+                if not llm_unavailable:
+                    weighted_score = (
+                        weighted_score * (1 - self.weights.get("llm_judge", 0)) +
+                        llm_result.score * self.weights.get("llm_judge", 0)
+                    )
                 all_flags.extend(llm_result.flags)
         
         # Classify
@@ -126,18 +144,42 @@ class HybridDetector:
                     "score": tokenizer_result.score,
                     "flags": tokenizer_result.flags,
                     "token_count": tokenizer_result.token_count,
+                    "rare_tokens": tokenizer_result.rare_tokens,
                     "markers_found": tokenizer_result.injection_markers_found,
+                    "scores": tokenizer_result.details,
                 },
                 "embedding": {
                     "score": embedding_result.score,
                     "flags": embedding_result.flags,
                     "top_match": embedding_result.top_matches[0] if embedding_result.top_matches else None,
+                    "top_matches": embedding_result.top_matches,
+                    "embedding_norm": embedding_result.embedding_norm,
+                    "details": embedding_result.details,
                 },
                 "rules": {
                     "score": rules_result.score,
                     "flags": rules_result.flags,
                     "match_count": len(rules_result.matches),
+                    "matches": [
+                        {
+                            "rule_id": match.rule_id,
+                            "rule_name": match.rule_name,
+                            "matched_text": match.matched_text,
+                            "severity": match.severity,
+                            "category": match.category,
+                        }
+                        for match in rules_result.matches
+                    ],
                     "severity_breakdown": rules_result.details.get("severity_breakdown", {}),
+                },
+                "llm_judge": {
+                    "enabled": self.llm_enabled or use_llm_judge,
+                    "invoked": llm_result is not None,
+                    "score": llm_result.score if llm_result else 0.0,
+                    "classification": llm_result.classification if llm_result else None,
+                    "confidence": llm_result.confidence if llm_result else 0.0,
+                    "reasoning": llm_result.reasoning if llm_result else "",
+                    "flags": llm_result.flags if llm_result else [],
                 },
                 "weights_used": self.weights,
                 "thresholds": self.thresholds,

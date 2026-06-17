@@ -12,6 +12,16 @@ from pathlib import Path
 import yaml
 
 
+class SimpleEncoding:
+    """Offline fallback when tiktoken encoding data is unavailable."""
+
+    def encode(self, text: str) -> List[int]:
+        return [hash(token) % 100000 for token in re.findall(r"\w+|[^\w\s]", text, re.UNICODE)]
+
+    def decode_single_token_bytes(self, token: int) -> bytes:
+        return f"token_{token}".encode("utf-8")
+
+
 @dataclass
 class TokenizerResult:
     score: float                    # 0.0 - 1.0 anomaly score
@@ -26,7 +36,8 @@ class TokenizerDetector:
     """Detects prompt injection via token-level analysis."""
     
     def __init__(self, config: Dict):
-        self.config = config.get("tokenizer", {})
+        detector_config = config.get("detector", config)
+        self.config = detector_config.get("tokenizer", config.get("tokenizer", {}))
         self.encoding_name = self.config.get("model", "gpt-4")
         self.max_tokens = self.config.get("max_tokens", 8192)
         self.rare_threshold = self.config.get("rare_token_threshold", 0.001)
@@ -36,7 +47,7 @@ class TokenizerDetector:
         try:
             self.encoding = tiktoken.get_encoding(self.encoding_name)
         except Exception:
-            self.encoding = tiktoken.get_encoding("cl100k_base")
+            self.encoding = SimpleEncoding()
         
         # Build frequency reference (simplified - in production use corpus statistics)
         self._common_tokens: Set[int] = set()
@@ -124,7 +135,7 @@ class TokenizerDetector:
         all_flags = markers_found + obfuscation_flags + smuggling_flags
         
         # Score components
-        marker_score = min(len(markers_found) * 0.3, 1.0)
+        marker_score = min(len(markers_found) * 0.45, 1.0)
         rare_score = min(len(rare_tokens) / max(token_count * 0.05, 1), 1.0)
         obfuscation_score = min(len(obfuscation_flags) * 0.25, 1.0)
         smuggling_score = min(len(smuggling_flags) * 0.3, 1.0)

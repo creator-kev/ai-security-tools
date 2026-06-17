@@ -68,6 +68,9 @@ Homepage = "https://github.com/creator-kev/ai-security-tools"
 Repository = "https://github.com/creator-kev/ai-security-tools"
 Issues = "https://github.com/creator-kev/ai-security-tools/issues"
 
+[project.scripts]
+ai-security-tools-ui = "detector.web_app:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["detector*"]

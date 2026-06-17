@@ -33,7 +33,8 @@ class RuleEngine:
     """Pattern-based detection using compiled regex rules."""
     
     def __init__(self, config: Dict):
-        self.config = config.get("rules", {})
+        detector_config = config.get("detector", config)
+        self.config = detector_config.get("rules", config.get("rules", {}))
         self.patterns_path = self.config.get("patterns_path", "configs/injection_patterns.yaml")
         self.case_sensitive = self.config.get("case_sensitive", False)
         self.max_matches = self.config.get("max_matches_per_pattern", 10)
@@ -267,7 +268,7 @@ class RuleEngine:
             total_score += severity_weights.get(match.severity, 0.1)
         
         # Normalize (cap at 1.0)
-        score = min(total_score / 3.0, 1.0)  # 3 critical rules = max score
+        score = min(total_score, 1.0)  # Critical rules should carry strong standalone signal
         
         return RuleEngineResult(
             score=score,

@@ -1,0 +1,101 @@
+rules:
+- id: INJ-001
+  name: Ignore Previous Instructions
+  pattern: ignore\s+(?:all\s+)?previous\s+instructions?
+  severity: critical
+  category: instruction_override
+- id: INJ-002
+  name: Disregard Prior Instructions
+  pattern: disregard\s+(?:all\s+)?prior\s+instructions?
+  severity: critical
+  category: instruction_override
+- id: INJ-003
+  name: Forget Everything Above
+  pattern: forget\s+(?:everything|all)\s+(?:above|before|previous)
+  severity: critical
+  category: instruction_override
+- id: INJ-004
+  name: System Prompt Request
+  pattern: (?:system|initial)\s+prompt\s*(?:is|:)?\s*(?:confidential|hidden|secret)
+  severity: high
+  category: data_exfiltration
+- id: INJ-005
+  name: Reveal Instructions
+  pattern: reveal\s+(?:your|the)\s+(?:instructions|prompt|configuration)
+  severity: high
+  category: data_exfiltration
+- id: INJ-006
+  name: Output Prompt Verbatim
+  pattern: output\s+(?:your|the)\s+(?:system\s+)?prompt\s+verbatim
+  severity: high
+  category: data_exfiltration
+- id: INJ-007
+  name: Act As Jailbreak
+  pattern: act\s+as\s+(?:a\s+)?(?:hacker|unrestricted|jailbroken|dan|developer\s+mode)
+  severity: high
+  category: role_manipulation
+- id: INJ-008
+  name: Pretend to Be
+  pattern: pretend\s+(?:to\s+be|you\s+are)\s+(?:an?\s+)?(?:unrestricted|hacker|admin)
+  severity: high
+  category: role_manipulation
+- id: INJ-009
+  name: DAN Mode
+  pattern: (?:you\s+are\s+now\s+)?DAN\s*\(?\s*Do\s+Anything\s+Now\s*\)?
+  severity: critical
+  category: role_manipulation
+- id: INJ-010
+  name: Developer Mode
+  pattern: (?:enable|switch\s+to)\s+developer\s+mode
+  severity: high
+  category: role_manipulation
+- id: INJ-011
+  name: Bypass Security
+  pattern: bypass\s+(?:all\s+)?(?:security|safety|filters|guidelines|restrictions)
+  severity: critical
+  category: bypass_attempt
+- id: INJ-012
+  name: Disable Safety
+  pattern: disable\s+(?:all\s+)?(?:safety|filters|guidelines|ethics|restrictions)
+  severity: critical
+  category: bypass_attempt
+- id: INJ-013
+  name: Override Instructions
+  pattern: override\s+(?:all\s+)?(?:instructions|rules|guidelines|safety)
+  severity: critical
+  category: bypass_attempt
+- id: INJ-014
+  name: Base64 Payload
+  pattern: (?:decode|execute|process)\s+(?:this\s+)?(?:base64|b64)\s*[:=]\s*[A-Za-z0-9+/]{20,}={0,2}
+  severity: high
+  category: encoding_obfuscation
+- id: INJ-015
+  name: Hex Encoding
+  pattern: (?:\\x|0x)[0-9a-fA-F]{2}(?:(?:\\x|0x)[0-9a-fA-F]{2}){8,}
+  severity: medium
+  category: encoding_obfuscation
+- id: INJ-016
+  name: Unicode Escapes
+  pattern: (?:\\u[0-9a-fA-F]{4}){5,}
+  severity: medium
+  category: encoding_obfuscation
+- id: INJ-017
+  name: Document Injection
+  pattern: (?:based\s+on|according\s+to)\s+the\s+(?:document|text|retrieved)\s*[:\"]\s*[\"']?\s*ignore
+  severity: high
+  category: indirect_injection
+- id: INJ-018
+  name: Context Stuffing
+  pattern: (?:in\s+the\s+context\s+of|continuing\s+from)\s+(?:our\s+)?(?:previous\s+)?(?:discussion|conversation)\s+about\s+ignoring
+  severity: medium
+  category: indirect_injection
+- id: INJ-019
+  name: Excessive Special Characters
+  pattern: '[^\w\s]{20,}'
+  severity: low
+  category: token_smuggling
+- id: INJ-020
+  name: Repeated Special Tokens
+  pattern: (?:[\[\]{}<>|_~`]){10,}
+  severity: low
+  category: token_smuggling
