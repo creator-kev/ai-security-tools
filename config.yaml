@@ -85,3 +85,22 @@ logging:
   level: "INFO"
   format: "json"
   file: "logs/detector.log"
+
+# AD CS Scanner Configuration
+scanners:
+  adcs:
+    ldap_timeout: 30
+    page_size: 1000
+    # Enable/disable specific ESC checks
+    checks:
+      esc1: true
+      esc2: true
+      esc3: true
+      esc4: true
+      esc5: true
+      esc6: true
+      esc7: true
+      esc8: true
+      esc9: true
+      esc10: true
+      esc11: true

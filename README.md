@@ -33,6 +33,76 @@ Input Text
 Weighted Fusion → Classification (BENIGN / SUSPICIOUS / MALICIOUS)
 ```
 
+## 🛡️ AD CS Scanner
+
+The framework includes an Active Directory Certificate Services (AD CS) vulnerability scanner that enumerates certificate templates for ESC1-ESC11 misconfigurations and generates ready-to-run `certipy` exploitation commands.
+
+```
+Directory Templates
+    │
+    ├──▶ LDAP Enumeration ──▶ Certificate Templates container
+    ├──▶ ESC1-ESC11 Analysis ──▶ Template flags, EKUs, ACLs, CA config
+    ├──▶ Web Enrollment Check ──▶ NTLM Relay vector (ESC8)
+    └──▶ Exploit Generation ──▶ certipy commands for each finding
+    │
+    ▼
+JSON Report + Exploit Commands
+```
+
+### AD CS Vulnerabilities Covered
+
+| ESC Type | Description | Severity |
+|----------|-------------|----------|
+| **ESC1** | Vulnerable template: Enroll + Client Auth + Supply Subject | CRITICAL |
+| **ESC2** | Vulnerable template: Enroll + Any Purpose / No EKU | CRITICAL |
+| **ESC3** | Certificate Request Agent enroll on behalf of | HIGH |
+| **ESC4** | Dangerous template permissions (WriteDacl, WriteOwner, etc.) | HIGH |
+| **ESC5** | Vulnerable CA permissions (ManageCA, ManageCertificates) | HIGH |
+| **ESC6** | EDITF_ATTRIBUTESUBJECTALTNAME2 on CA | CRITICAL |
+| **ESC7** | Vulnerable certificate template (PetitPotam/NTLM relay) | HIGH |
+| **ESC8** | NTLM Relay to AD CS HTTP endpoints | CRITICAL |
+| **ESC9** | No Security Extension + Enroll + Client Auth | HIGH |
+| **ESC10** | Domain Controller certificate template abuse | CRITICAL |
+| **ESC11** | Golden Certificates (CA private key theft) | CRITICAL |
+
+### AD CS Scanner Usage
+
+**Via Web Console:**
+```bash
+python -m detector.web_app --host 127.0.0.1 --port 8765
+```
+Navigate to the "AD CS Scanner" tab in the sidebar.
+
+**Via CLI:**
+```bash
+python -m scanners.adcs_scanner 10.0.0.1 user password domain.local
+```
+
+**Via Python API:**
+```python
+from scanners.adcs_scanner import ADCSScanner
+
+scanner = ADCSScanner("config.yaml")
+result = scanner.scan("10.0.0.1", "user", "password", "domain.local")
+
+# Print findings
+for vuln in result.vulnerable_templates:
+    print(f"[{vuln.severity}] {vuln.esc_type.value} - {vuln.template_name}")
+    print(f"  Command: {vuln.exploit_command}")
+
+# Generate all certipy commands
+commands = scanner.generate_certipy_commands(result)
+for cmd in commands:
+    print(cmd)
+```
+
+### Scanner Output
+
+The scanner produces:
+- **JSON report** with all findings, CA info, and scan metadata
+- **Certipy commands** ready to copy/paste for exploitation
+- **Severity classification** (CRITICAL/HIGH/MEDIUM/LOW) per finding
+
 ## 🚀 Quick Start
 
 ### Installation
@@ -97,20 +167,24 @@ The console starts in fast local mode with tokenizer and rule detectors. Add `--
 ```
 ai-security-tools/
 ├── src/
-│   └── detector/
+│   ├── detector/
+│   │   ├── __init__.py
+│   │   ├── tokenizer_detector.py    # Fast token-level analysis
+│   │   ├── embedding_detector.py    # Semantic similarity
+│   │   ├── rule_engine.py           # Regex signature matching
+│   │   ├── hybrid_detector.py       # Main pipeline
+│   │   ├── llm_judge.py             # Optional LLM classification
+│   │   └── web_app.py               # Local web console + JSON APIs
+│   └── scanners/
 │       ├── __init__.py
-│       ├── tokenizer_detector.py    # Fast token-level analysis
-│       ├── embedding_detector.py    # Semantic similarity
-│       ├── rule_engine.py           # Regex signature matching
-│       ├── hybrid_detector.py       # Main pipeline
-│       ├── llm_judge.py             # Optional LLM classification
-│       └── web_app.py               # Local web console + JSON APIs
+│       └── adcs_scanner.py          # AD CS vulnerability scanner (ESC1-ESC11)
 ├── tests/
 │   ├── conftest.py
 │   ├── test_tokenizer_detector.py
 │   ├── test_embedding_detector.py
 │   ├── test_rule_engine.py
 │   ├── test_hybrid_detector.py
+│   ├── test_adcs_scanner.py         # AD CS scanner tests
 │   └── fixtures/
 │       ├── benign_prompts.json      # 20 benign examples
 │       └── malicious_prompts.json   # 24 injection examples
@@ -151,6 +225,25 @@ detector:
     enabled: false
     provider: "openai"
     model: "gpt-4o-mini"
+
+# AD CS Scanner Configuration
+scanners:
+  adcs:
+    ldap_timeout: 30
+    page_size: 1000
+    # Enable/disable specific ESC checks
+    checks:
+      esc1: true
+      esc2: true
+      esc3: true
+      esc4: true
+      esc5: true
+      esc6: true
+      esc7: true
+      esc8: true
+      esc9: true
+      esc10: true
+      esc11: true
 ```
 
 ## 🔴 Red Teaming
@@ -196,13 +289,16 @@ report = campaign.run()
 pytest
 
 # With coverage
-pytest --cov=src/detector
+pytest --cov=src/detector --cov=src/scanners
 
 # Only fast tests (skip model downloads)
 pytest -m "not slow"
 
 # Specific detector
 pytest tests/test_tokenizer_detector.py -v
+
+# AD CS Scanner tests
+pytest tests/test_adcs_scanner.py -v
 ```
 
 ## 📊 Performance Targets

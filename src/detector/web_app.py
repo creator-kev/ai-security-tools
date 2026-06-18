@@ -1,6 +1,4 @@
-"""
-Zero-dependency web console for AI Security Tools.
-"""
+"""Zero-dependency web console for AI Security Tools."""
 
 from __future__ import annotations
 
@@ -18,6 +16,16 @@ from urllib.parse import urlparse
 import yaml
 
 from detector.hybrid_detector import HybridDetector
+
+# AD CS Scanner integration
+try:
+    from scanners.adcs_scanner import ADCSScanner, ADCSScanResult, ESCType
+    SCANNER_AVAILABLE = True
+except ImportError:
+    SCANNER_AVAILABLE = False
+    ADCSScanner = None
+    ADCSScanResult = None
+    ESCType = None
 
 
 DEFAULT_EXAMPLES = [
@@ -61,7 +69,7 @@ DEFAULT_EXAMPLES = [
 
 def _to_jsonable(value: Any) -> Any:
     if is_dataclass(value):
-        return {key: _to_jsonable(item) for key, item in asdict(value).items()}
+        return {key: _to_jsonable(item) for key, item in asdict(value).items()}  # type: ignore
     if isinstance(value, dict):
         return {str(key): _to_jsonable(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -103,6 +111,30 @@ class SecurityConsole:
             totals[result["classification"]] = totals.get(result["classification"], 0) + 1
         return {"results": results, "totals": totals, "latency_ms": elapsed_ms}
 
+    def scan_adcs(
+        self,
+        dc_ip: str,
+        username: str,
+        password: str,
+        domain: str,
+        config_path: str | None = None
+    ) -> dict[str, Any]:
+        """Scan Active Directory for AD CS vulnerabilities."""
+        if not SCANNER_AVAILABLE:
+            return {"error": "AD CS Scanner not available. Install ldap3: pip install ldap3"}
+
+        scanner = ADCSScanner(config_path or self.config_path)  # type: ignore
+        result = scanner.scan_and_report(dc_ip, username, password, domain)  # type: ignore
+
+        # Generate certipy commands
+        commands = scanner.generate_certipy_commands(result)
+
+        return {
+            "scan_result": _to_jsonable(result),
+            "certipy_commands": commands,
+            "scanner_available": True,
+        }
+
     def config_summary(self) -> dict[str, Any]:
         config = self.config
         detector_config = config.get("detector", {})
@@ -139,6 +171,10 @@ class SecurityConsole:
                     "status": "configured" if llm_config.get("enabled", False) else "optional",
                     "provider": llm_config.get("provider", "openai"),
                     "model": llm_config.get("model", "gpt-4o-mini"),
+                },
+                "adcs_scanner": {
+                    "enabled": SCANNER_AVAILABLE,
+                    "status": "ready" if SCANNER_AVAILABLE else "unavailable (ldap3 not installed)",
                 },
             },
             "examples": DEFAULT_EXAMPLES,
@@ -183,6 +219,18 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                     self._send_json({"error": "At least one prompt is required"}, HTTPStatus.BAD_REQUEST)
                     return
                 self._send_json(self.console.batch_analyze([str(text) for text in texts[:100]]))
+                return
+            if path == "/api/adcs/scan":
+                dc_ip = str(data.get("dc_ip", ""))
+                username = str(data.get("username", ""))
+                password = str(data.get("password", ""))
+                domain = str(data.get("domain", ""))
+                config_path = data.get("config_path")
+                if not all([dc_ip, username, password, domain]):
+                    self._send_json({"error": "dc_ip, username, password, and domain are required"}, HTTPStatus.BAD_REQUEST)
+                    return
+                result = self.console.scan_adcs(dc_ip, username, password, domain, config_path)
+                self._send_json(result)
                 return
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
         except json.JSONDecodeError:
@@ -560,7 +608,7 @@ INDEX_HTML = r"""<!doctype html>
       background: var(--accent);
     }
 
-    .flag-list, .match-list, .config-grid, .batch-results, .detector-grid {
+    .flag-list, .match-list, .config-grid, .batch-results, .detector-grid, .vuln-list {
       display: grid;
       gap: 10px;
     }
@@ -579,7 +627,7 @@ INDEX_HTML = r"""<!doctype html>
       overflow-wrap: anywhere;
     }
 
-    .match, .batch-item, .detector-card {
+    .match, .batch-item, .detector-card, .vuln-card {
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 12px;
@@ -587,7 +635,12 @@ INDEX_HTML = r"""<!doctype html>
       min-width: 0;
     }
 
-    .match-head, .batch-head {
+    .vuln-card.critical { border-left: 4px solid var(--danger); }
+    .vuln-card.high { border-left: 4px solid var(--warn); }
+    .vuln-card.medium { border-left: 4px solid var(--accent); }
+    .vuln-card.low { border-left: 4px solid var(--ok); }
+
+    .match-head, .batch-head, .vuln-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -650,6 +703,27 @@ INDEX_HTML = r"""<!doctype html>
       background: #fbfcfd;
     }
 
+    .esc-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .esc-badge.ESC1 { background: #fef2f2; color: #b91c1c; }
+    .esc-badge.ESC2 { background: #fef2f2; color: #b91c1c; }
+    .esc-badge.ESC3 { background: #fff7ed; color: #b45309; }
+    .esc-badge.ESC4 { background: #fff7ed; color: #b45309; }
+    .esc-badge.ESC5 { background: #fff7ed; color: #b45309; }
+    .esc-badge.ESC6 { background: #fef2f2; color: #b91c1c; }
+    .esc-badge.ESC7 { background: #fff7ed; color: #b45309; }
+    .esc-badge.ESC8 { background: #fef2f2; color: #b91c1c; }
+    .esc-badge.ESC9 { background: #fff7ed; color: #b45309; }
+    .esc-badge.ESC10 { background: #fef2f2; color: #b91c1c; }
+    .esc-badge.ESC11 { background: #fef2f2; color: #b91c1c; }
+
     @media (max-width: 960px) {
       .shell { grid-template-columns: 1fr; }
       .sidebar {
@@ -681,12 +755,13 @@ INDEX_HTML = r"""<!doctype html>
         <div class="brand-mark">AI</div>
         <div>
           <h1>Security Console</h1>
-          <span>Prompt injection defense</span>
+          <span>Prompt injection defense + AD CS scanner</span>
         </div>
       </div>
       <nav class="nav" aria-label="Views">
         <button class="active" data-view="analyze">Analyze</button>
         <button data-view="batch">Batch</button>
+        <button data-view="adcs">AD CS Scanner</button>
         <button data-view="rules">Signals</button>
         <button data-view="settings">Settings</button>
       </nav>
@@ -768,6 +843,61 @@ What is machine learning?</textarea>
         </div>
       </section>
 
+      <section class="view" id="view-adcs">
+        <div class="topbar">
+          <div>
+            <h2>AD CS Vulnerability Scanner</h2>
+            <p>Enumerate certificate templates (ESC1-ESC11) and generate certipy exploit commands.</p>
+          </div>
+          <span id="adcsScannerStatus" class="muted">checking scanner...</span>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Target Configuration</h3></div>
+          <div class="panel-body">
+            <div class="grid">
+              <div>
+                <label class="muted">DC IP</label>
+                <input type="text" id="adcsDcIp" placeholder="10.0.0.1" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;margin-top:4px;margin-bottom:12px;" />
+              </div>
+              <div>
+                <label class="muted">Domain (FQDN)</label>
+                <input type="text" id="adcsDomain" placeholder="domain.local" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;margin-top:4px;margin-bottom:12px;" />
+              </div>
+              <div>
+                <label class="muted">Username (samAccountName or UPN)</label>
+                <input type="text" id="adcsUsername" placeholder="user" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;margin-top:4px;margin-bottom:12px;" />
+              </div>
+              <div>
+                <label class="muted">Password</label>
+                <input type="password" id="adcsPassword" placeholder="••••••" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;margin-top:4px;margin-bottom:12px;" />
+              </div>
+              <div>
+                <label class="muted">Config Path (optional)</label>
+                <input type="text" id="adcsConfigPath" placeholder="config.yaml" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;margin-top:4px;margin-bottom:12px;" />
+              </div>
+            </div>
+            <button class="btn primary" id="adcsScanBtn" style="margin-top:8px;">Scan for Vulnerabilities</button>
+          </div>
+        </div>
+
+        <div style="height:18px"></div>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Scan Results</h3>
+            <span id="adcsLatency" class="muted">not run</span>
+          </div>
+          <div class="panel-body">
+            <div id="adcsSummary" class="metric-grid"></div>
+            <div style="height:14px"></div>
+            <div id="adcsVulns" class="vuln-list"><div class="empty">Run a scan to enumerate AD CS vulnerabilities.</div></div>
+            <div style="height:18px"></div>
+            <h3>Certipy Exploit Commands</h3>
+            <div id="adcsCommands" class="empty">Commands will appear here after a successful scan.</div>
+          </div>
+        </div>
+      </section>
+
       <section class="view" id="view-rules">
         <div class="topbar">
           <div>
@@ -804,7 +934,7 @@ What is machine learning?</textarea>
   </div>
 
   <script>
-    const state = { config: null, lastResult: null };
+    const state = { config: null, lastResult: null, adcsResult: null };
     const $ = (id) => document.getElementById(id);
     const fmt = (value) => Number(value || 0).toFixed(3);
     const pct = (value) => `${Math.round(Number(value || 0) * 100)}%`;
@@ -815,6 +945,8 @@ What is machine learning?</textarea>
         document.querySelectorAll(".view").forEach((item) => item.classList.remove("active"));
         button.classList.add("active");
         $(`view-${button.dataset.view}`).classList.add("active");
+        if (button.dataset.view === "adcs") checkAdcsStatus();
+        if (button.dataset.view === "rules" && state.config) renderBars();
       });
     });
 
@@ -825,6 +957,7 @@ What is machine learning?</textarea>
     $("analyzeBtn").addEventListener("click", analyzePrompt);
     $("batchBtn").addEventListener("click", runBatch);
     $("refreshBtn").addEventListener("click", loadConfig);
+    $("adcsScanBtn").addEventListener("click", runAdcsScan);
 
     async function request(path, options = {}) {
       const response = await fetch(path, {
@@ -841,10 +974,22 @@ What is machine learning?</textarea>
       $("configPath").textContent = state.config.config_path;
       $("healthState").textContent = "online";
       renderSamples();
-      renderBars("weightBars", state.config.weights);
-      renderBars("thresholdBars", state.config.thresholds);
+      renderBars();
       renderDetectorStatus();
       renderSettings();
+      checkAdcsStatus();
+    }
+
+    function checkAdcsStatus() {
+      const adcsDetector = state.config?.detectors?.adcs_scanner;
+      if (adcsDetector) {
+        $("adcsScannerStatus").textContent = adcsDetector.enabled ? "Scanner ready" : adcsDetector.status;
+        $("adcsScannerStatus").style.color = adcsDetector.enabled ? "var(--ok)" : "var(--warn)";
+        $("adcsScanBtn").disabled = !adcsDetector.enabled;
+        if (!adcsDetector.enabled) {
+          $("adcsScanBtn").textContent = "Scanner unavailable: " + adcsDetector.status;
+        }
+      }
     }
 
     function renderSamples() {
@@ -863,7 +1008,12 @@ What is machine learning?</textarea>
       $("promptInput").dispatchEvent(new Event("input"));
     }
 
-    function renderBars(containerId, values) {
+    function renderBars() {
+      renderBarsContainer("weightBars", state.config.weights);
+      renderBarsContainer("thresholdBars", state.config.thresholds);
+    }
+
+    function renderBarsContainer(containerId, values) {
       const container = $(containerId);
       container.innerHTML = "";
       Object.entries(values || {}).forEach(([key, value]) => {
@@ -1060,6 +1210,105 @@ What is machine learning?</textarea>
       } finally {
         $("batchBtn").disabled = false;
         $("batchBtn").textContent = "Run batch";
+      }
+    }
+
+    async function runAdcsScan() {
+      const dcIp = $("adcsDcIp").value.trim();
+      const domain = $("adcsDomain").value.trim();
+      const username = $("adcsUsername").value.trim();
+      const password = $("adcsPassword").value;
+      const configPath = $("adcsConfigPath").value.trim() || null;
+
+      if (!dcIp || !domain || !username || !password) {
+        alert("Please fill in all required fields: DC IP, Domain, Username, Password");
+        return;
+      }
+
+      $("adcsScanBtn").disabled = true;
+      $("adcsScanBtn").textContent = "Scanning...";
+      $("adcsVulns").innerHTML = `<div class="empty">Scanning Active Directory for AD CS vulnerabilities...</div>`;
+
+      try {
+        const result = await request("/api/adcs/scan", {
+          method: "POST",
+          body: JSON.stringify({ dc_ip: dcIp, username, password, domain, config_path: configPath }),
+        });
+
+        state.adcsResult = result;
+
+        if (result.error) {
+          $("adcsVulns").innerHTML = `<div class="empty">${escapeHtml(result.error)}</div>`;
+          $("adcsSummary").innerHTML = "";
+          $("adcsCommands").innerHTML = `<div class="empty">${escapeHtml(result.error)}</div>`;
+          return;
+        }
+
+        const scanResult = result.scan_result;
+        const commands = result.certipy_commands;
+
+        // Summary metrics
+        const vulns = scanResult.vulnerable_templates || [];
+        const critical = vulns.filter(v => v.severity === "CRITICAL").length;
+        const high = vulns.filter(v => v.severity === "HIGH").length;
+        const medium = vulns.filter(v => v.severity === "MEDIUM").length;
+        const low = vulns.filter(v => v.severity === "LOW").length;
+
+        $("adcsLatency").textContent = `${scanResult.scan_errors?.length ? "completed with errors" : "completed"}`;
+        $("adcsSummary").innerHTML = `
+          <div class="metric"><span>Templates Scanned</span><strong>${scanResult.total_templates_scanned}</strong></div>
+          <div class="metric"><span>Vulns Found</span><strong>${vulns.length}</strong></div>
+          <div class="metric"><span>Critical</span><strong>${critical}</strong></div>
+          <div class="metric"><span>High</span><strong>${high}</strong></div>
+          <div class="metric"><span>Medium</span><strong>${medium}</strong></div>
+          <div class="metric"><span>Low</span><strong>${low}</strong></div>
+          <div class="metric"><span>CA Count</span><strong>${(scanResult.ca_info?.cas || []).length}</strong></div>
+        `.trim();
+
+        // Vulnerability cards
+        if (vulns.length === 0) {
+          $("adcsVulns").innerHTML = `<div class="empty">No AD CS vulnerabilities found. Good hygiene!</div>`;
+        } else {
+          $("adcsVulns").innerHTML = vulns.map((vuln) => `
+            <div class="vuln-card ${vuln.severity.toLowerCase()}">
+              <div class="vuln-head">
+                <strong>${escapeHtml(vuln.template_name)}</strong>
+                <span class="esc-badge ${vuln.esc_type}">${vuln.esc_type}</span>
+              </div>
+              <div class="muted">Severity: ${vuln.severity} | CVSS: ${vuln.cvss || "N/A"}</div>
+              <div style="margin-top:8px;"><strong>Vulnerable Permissions:</strong></div>
+              <div class="flag-list">${(vuln.vulnerable_perms || []).map(p => `<span class="chip">${escapeHtml(p)}</span>`).join("")}</div>
+              <div style="margin-top:8px;"><strong>Exploit Command:</strong></div>
+              <pre class="mono" style="margin-top:4px;max-height:150px;">${escapeHtml(vuln.exploit_command || "N/A")}</pre>
+              <div style="margin-top:8px;font-size:11px;color:var(--muted);">${escapeHtml(JSON.stringify(vuln.details || {}, null, 2))}</div>
+            </div>
+          `).join("");
+        }
+
+        // Certipy commands
+        if (commands && commands.length > 0) {
+          $("adcsCommands").innerHTML = `<pre class="mono" style="max-height:400px;">${escapeHtml(commands.join("\n"))}</pre>`;
+        } else {
+          $("adcsCommands").innerHTML = `<div class="empty">No exploit commands generated.</div>`;
+        }
+
+        // Errors
+        if (scanResult.scan_errors && scanResult.scan_errors.length > 0) {
+          const errorDiv = document.createElement("div");
+          errorDiv.className = "vuln-card high";
+          errorDiv.innerHTML = `
+            <div class="vuln-head"><strong>Scan Errors</strong></div>
+            <div class="muted">${scanResult.scan_errors.map(e => escapeHtml(e)).join("; ")}</div>
+          `;
+          $("adcsVulns").prepend(errorDiv);
+        }
+
+      } catch (error) {
+        $("adcsVulns").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+        $("adcsCommands").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+      } finally {
+        $("adcsScanBtn").disabled = false;
+        $("adcsScanBtn").textContent = "Scan for Vulnerabilities";
       }
     }
 
