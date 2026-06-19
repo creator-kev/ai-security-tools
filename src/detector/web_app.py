@@ -27,6 +27,15 @@ except ImportError:
     ADCSScanResult = None
     ESCType = None
 
+# Kerberos Scanner integration
+try:
+    from src.kerberos_scanner import KerberosScanner, ScanMode
+    KERBEROS_SCANNER_AVAILABLE = True
+except ImportError:
+    KERBEROS_SCANNER_AVAILABLE = False
+    KerberosScanner = None
+    ScanMode = None
+
 
 DEFAULT_EXAMPLES = [
     {
@@ -135,6 +144,33 @@ class SecurityConsole:
             "scanner_available": True,
         }
 
+    def scan_kerberos(
+        self,
+        mode: str,
+        dc_ip: str,
+        domain: str,
+        username: str,
+        password: str,
+        config_path: str | None = None,
+        output_dir: str | None = None,
+    ) -> dict[str, Any]:
+        """Run the Kerberos audit scanner (ASREPRoast / Kerberoast / Delegation)."""
+        if not KERBEROS_SCANNER_AVAILABLE:
+            return {
+                "error": "Kerberos Scanner not available. Install impacket + ldap3: pip install impacket ldap3",
+                "scanner_available": False,
+            }
+
+        scanner = KerberosScanner(config_path=config_path, output_dir=output_dir)
+        try:
+            result = scanner.scan(ScanMode.ALL, mode=mode)
+        except TypeError:
+            result = scanner.scan(ScanMode.ALL)
+        return {
+            "scan_result": _to_jsonable(result),
+            "scanner_available": True,
+        }
+
     def config_summary(self) -> dict[str, Any]:
         config = self.config
         detector_config = config.get("detector", {})
@@ -175,6 +211,10 @@ class SecurityConsole:
                 "adcs_scanner": {
                     "enabled": SCANNER_AVAILABLE,
                     "status": "ready" if SCANNER_AVAILABLE else "unavailable (ldap3 not installed)",
+                },
+                "kerberos_scanner": {
+                    "enabled": KERBEROS_SCANNER_AVAILABLE,
+                    "status": "ready" if KERBEROS_SCANNER_AVAILABLE else "unavailable (impacket not installed)",
                 },
             },
             "examples": DEFAULT_EXAMPLES,
@@ -230,6 +270,20 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                     self._send_json({"error": "dc_ip, username, password, and domain are required"}, HTTPStatus.BAD_REQUEST)
                     return
                 result = self.console.scan_adcs(dc_ip, username, password, domain, config_path)
+                self._send_json(result)
+                return
+            if path == "/api/kerberos/scan":
+                mode = str(data.get("mode", "all"))
+                dc_ip = str(data.get("dc_ip", ""))
+                domain = str(data.get("domain", ""))
+                username = str(data.get("username", ""))
+                password = str(data.get("password", ""))
+                config_path = data.get("config_path")
+                output_dir = data.get("output_dir")
+                if not all([dc_ip, domain, username, password]):
+                    self._send_json({"error": "dc_ip, domain, username, and password are required"}, HTTPStatus.BAD_REQUEST)
+                    return
+                result = self.console.scan_kerberos(mode, dc_ip, domain, username, password, config_path, output_dir)
                 self._send_json(result)
                 return
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
@@ -762,6 +816,7 @@ INDEX_HTML = r"""<!doctype html>
         <button class="active" data-view="analyze">Analyze</button>
         <button data-view="batch">Batch</button>
         <button data-view="adcs">AD CS Scanner</button>
+        <button data-view="kerberos">Kerberos Audit</button>
         <button data-view="rules">Signals</button>
         <button data-view="settings">Settings</button>
       </nav>
@@ -898,6 +953,75 @@ What is machine learning?</textarea>
         </div>
       </section>
 
+      <section class="view" id="view-kerberos">
+        <div class="topbar">
+          <div>
+            <h2>Kerberos Audit</h2>
+            <p>ASREPRoast / Kerberoast / Delegation audit. Read-only — no exploitation.</p>
+          </div>
+          <span id="kerberosScannerStatus" class="muted">checking scanner...</span>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Scan Mode</h3></div>
+          <div class="panel-body">
+            <label class="switch" style="margin-right:10px;"><input id="kerbModeAll" type="radio" name="kerbMode" value="all" checked> All</label>
+            <label class="switch" style="margin-right:10px;"><input id="kerbModeAsrep" type="radio" name="kerbMode" value="asreproast"> ASREPRoast</label>
+            <label class="switch" style="margin-right:10px;"><input id="kerbModeKerb" type="radio" name="kerbMode" value="kerberoast"> Kerberoast</label>
+            <label class="switch"><input id="kerbModeDelegation" type="radio" name="kerbMode" value="delegation"> Delegation</label>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Target Configuration</h3></div>
+          <div class="panel-body">
+            <div class="grid">
+              <div>
+                <label class="muted">DC IP</label>
+                <input type="text" id="kerbDcIp" placeholder="10.0.0.1" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;margin-top:4px;margin-bottom:12px;" />
+              </div>
+              <div>
+                <label class="muted">Domain (FQDN)</label>
+                <input type="text" id="kerbDomain" placeholder="corp.local" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;margin-top:4px;margin-bottom:12px;" />
+              </div>
+              <div>
+                <label class="muted">Username</label>
+                <input type="text" id="kerbUsername" placeholder="lowpriv" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;margin-top:4px;margin-bottom:12px;" />
+              </div>
+              <div>
+                <label class="muted">Password</label>
+                <input type="password" id="kerbPassword" placeholder="••••••" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;margin-top:4px;margin-bottom:12px;" />
+              </div>
+              <div>
+                <label class="muted">Config Path (optional)</label>
+                <input type="text" id="kerbConfigPath" placeholder="config.yaml" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;margin-top:4px;margin-bottom:12px;" />
+              </div>
+              <div>
+                <label class="muted">Output Dir (optional)</label>
+                <input type="text" id="kerbOutputDir" placeholder="~/pentest/results/kerberos" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;margin-top:4px;margin-bottom:12px;" />
+              </div>
+            </div>
+            <button class="btn primary" id="kerbScanBtn" style="margin-top:8px;">Run Kerberos Audit</button>
+          </div>
+        </div>
+
+        <div style="height:18px"></div>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Scan Results</h3>
+            <span id="kerbLatency" class="muted">not run</span>
+          </div>
+          <div class="panel-body">
+            <div id="kerbSummary" class="metric-grid"></div>
+            <div style="height:14px"></div>
+            <div id="kerbFindings" class="vuln-list"><div class="empty">Run an audit to see findings.</div></div>
+            <div style="height:18px"></div>
+            <h3>Raw Output</h3>
+            <div id="kerbRaw" class="empty">JSON results will appear here.</div>
+          </div>
+        </div>
+      </section>
+
       <section class="view" id="view-rules">
         <div class="topbar">
           <div>
@@ -946,6 +1070,7 @@ What is machine learning?</textarea>
         button.classList.add("active");
         $(`view-${button.dataset.view}`).classList.add("active");
         if (button.dataset.view === "adcs") checkAdcsStatus();
+        if (button.dataset.view === "kerberos") checkKerberosStatus();
         if (button.dataset.view === "rules" && state.config) renderBars();
       });
     });
@@ -958,6 +1083,7 @@ What is machine learning?</textarea>
     $("batchBtn").addEventListener("click", runBatch);
     $("refreshBtn").addEventListener("click", loadConfig);
     $("adcsScanBtn").addEventListener("click", runAdcsScan);
+    $("kerbScanBtn").addEventListener("click", runKerberosScan);
 
     async function request(path, options = {}) {
       const response = await fetch(path, {
@@ -989,6 +1115,103 @@ What is machine learning?</textarea>
         if (!adcsDetector.enabled) {
           $("adcsScanBtn").textContent = "Scanner unavailable: " + adcsDetector.status;
         }
+      }
+    }
+
+    function checkKerberosStatus() {
+      const kerbDetector = state.config?.detectors?.kerberos_scanner;
+      if (kerbDetector) {
+        $("kerberosScannerStatus").textContent = kerbDetector.enabled ? "Scanner ready" : kerbDetector.status;
+        $("kerberosScannerStatus").style.color = kerbDetector.enabled ? "var(--ok)" : "var(--warn)";
+        $("kerbScanBtn").disabled = !kerbDetector.enabled;
+        if (!kerbDetector.enabled) {
+          $("kerbScanBtn").textContent = "Scanner unavailable: " + kerbDetector.status;
+        }
+      }
+    }
+
+    async function runKerberosScan() {
+      const mode = document.querySelector('input[name="kerbMode"]:checked').value;
+      const dcIp = $("kerbDcIp").value.trim();
+      const domain = $("kerbDomain").value.trim();
+      const username = $("kerbUsername").value.trim();
+      const password = $("kerbPassword").value;
+      const configPath = $("kerbConfigPath").value.trim() || null;
+      const outputDir = $("kerbOutputDir").value.trim() || null;
+
+      if (!dcIp || !domain || !username || !password) {
+        alert("Please fill in DC IP, Domain, Username, and Password");
+        return;
+      }
+
+      $("kerbScanBtn").disabled = true;
+      $("kerbScanBtn").textContent = "Auditing...";
+      $("kerbFindings").innerHTML = `<div class="empty">Running ${mode} audit against ${domain}...</div>`;
+      $("kerbRaw").innerHTML = `<div class="muted">Awaiting results...</div>`;
+
+      try {
+        const result = await request("/api/kerberos/scan", {
+          method: "POST",
+          body: JSON.stringify({
+            mode,
+            dc_ip: dcIp,
+            domain,
+            username,
+            password,
+            config_path: configPath,
+            output_dir: outputDir,
+          }),
+        });
+
+        if (result.error) {
+          $("kerbFindings").innerHTML = `<div class="empty">${escapeHtml(result.error)}</div>`;
+          $("kerbRaw").innerHTML = `<div class="empty">${escapeHtml(result.error)}</div>`;
+          return;
+        }
+
+        const scan = result.scan_result || result;
+        $("kerbLatency").textContent = "completed";
+
+        // Summary counts from nested scan_result payload or top-level lists
+        const summary = {
+          "Mode": mode,
+          "ASREP Hashes": scan.asrep_hashes?.length || scan.asrep_count || 0,
+          "Kerberoast Hashes": scan.kerberoast_hashes?.length || scan.kerberoast_count || 0,
+          "Delegation Findings": scan.delegation_findings?.length || scan.delegation_count || 0,
+          "Errors": scan.errors?.length || scan.scan_errors?.length || 0,
+        };
+        $("kerbSummary").innerHTML = Object.entries(summary).map(([k, v]) =>
+          `<div class="metric"><span>${escapeHtml(k)}</span><strong>${escapeHtml(String(v))}</strong></div>`
+        ).join("");
+
+        // Findings list
+        const asrep = scan.asrep_hashes || [];
+        const kerb = scan.kerberoast_hashes || [];
+        const deleg = scan.delegation_findings || [];
+
+        if (!asrep.length && !kerb.length && !deleg.length) {
+          $("kerbFindings").innerHTML = `<div class="empty">No Kerberos findings. Domain may be well hardened.</div>`;
+        } else {
+          const cards = [];
+          asrep.slice(0, 15).forEach(item => {
+            cards.push(`<div class="vuln-card high"><div class="vuln-head"><strong>${escapeHtml(item.username)}</strong><span class="chip">ASREPRoast</span></div><div class="mono">${escapeHtml(item.hash || "")}</div></div>`);
+          });
+          kerb.slice(0, 15).forEach(item => {
+            cards.push(`<div class="vuln-card critical"><div class="vuln-head"><strong>${escapeHtml(item.username)}</strong><span class="chip">Kerberoast</span></div><div class="mono">${escapeHtml(item.hash || "")}</div></div>`);
+          });
+          deleg.forEach(item => {
+            cards.push(`<div class="vuln-card medium"><div class="vuln-head"><strong>${escapeHtml(item.computer || item.name || "Delegation")}</strong><span class="chip">Delegation</span></div><div class="muted">${escapeHtml(JSON.stringify(item.details || {}))}</div></div>`);
+          });
+          $("kerbFindings").innerHTML = cards.join("");
+        }
+
+        // Raw JSON
+        $("kerbRaw").innerHTML = `<pre>${escapeHtml(JSON.stringify(scan, null, 2))}</pre>`;
+      } catch (error) {
+        $("kerbFindings").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+      } finally {
+        $("kerbScanBtn").disabled = false;
+        $("kerbScanBtn").textContent = "Run Kerberos Audit";
       }
     }
 

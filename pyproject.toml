@@ -37,6 +37,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+kerberos = [
+    "impacket>=0.12.1",
+    "ldap3>=2.9.1",
+]
 llm = [
     "openai>=1.35.3",
     "anthropic>=0.28.1",
@@ -56,6 +60,8 @@ all = [
     "openai>=1.35.3",
     "anthropic>=0.28.1",
     "llama-cpp-python>=0.2.90",
+    "impacket>=0.12.1",
+    "ldap3>=2.9.1",
     "pytest>=8.2.2",
     "pytest-cov>=5.0.0",
     "black>=24.4.2",
