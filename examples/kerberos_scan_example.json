@@ -1,0 +1,74 @@
+{
+  "domain": "corp.local",
+  "dc_ip": "10.0.0.1",
+  "mode": "all",
+  "asrep_hashes": [
+    {
+      "username": "svc-expo",
+      "spn": "",
+      "hash": "$krb5asrep$23$svc-expo@CORP.LOCAL$hashpart...",
+      "encryption": "RC4-HMAC",
+      "hashcat_mode": "18200",
+      "hostname": "dc01.corp.local",
+      "timestamp": "2026-06-19T14:30:00Z"
+    }
+  ],
+  "kerberoast_hashes": [
+    {
+      "username": "svc-sql",
+      "spn": "MSSQLSvc/sql01.corp.local:1433",
+      "hash": "$krb5tgs$23$*svc-sql$MSSQLSvc/sql01.corp.local*$hashpart...",
+      "encryption": "RC4-HMAC",
+      "hashcat_mode": "13100",
+      "hostname": "sql01.corp.local",
+      "timestamp": "2026-06-19T14:30:00Z"
+    },
+    {
+      "username": "svc-web",
+      "spn": "HTTP/web01.corp.local",
+      "hash": "$krb5tgs$18$*svc-web$HTTP/web01.corp.local*$aes256part...",
+      "encryption": "AES256",
+      "hashcat_mode": "19800",
+      "hostname": "web01.corp.local",
+      "timestamp": "2026-06-19T14:30:00Z"
+    }
+  ],
+  "delegation_findings": [
+    {
+      "computer_name": "WIN-FILE-01$",
+      "delegation_type": "unconstrained",
+      "allowed_to_delegate_to": ["cifs/win-file-01.corp.local"],
+      "user_account_control": 524288,
+      "details": {
+        "os": "Windows Server 2019",
+        "description": "Computer can delegate credentials to ANY service in the domain."
+      }
+    },
+    {
+      "computer_name": "WIN-WEB-01$",
+      "delegation_type": "constrained",
+      "allowed_to_delegate_to": ["cifs/win-web-01.corp.local", "host/win-web-01.corp.local"],
+      "user_account_control": 16777216,
+      "details": {
+        "os": "Windows Server 2022",
+        "description": "Computer restricted to specific SPNs via msDS-AllowedToDelegateTo."
+      }
+    }
+  ],
+  "scan_errors": [],
+  "scan_metadata": {
+    "output_file": "~/pentest/results/kerberos/kerberoast_lab.json",
+    "hashcat_modes": {
+      "asrep": "18200",
+      "rc4": "13100",
+      "aes128": "19700",
+      "aes256": "19800"
+    },
+    "total_spns_found": 2,
+    "asrep_users_found": 1,
+    "unconstrained_computers": 1,
+    "constrained_computers": 1,
+    "impacket_tool_asrep": "GetNPUsers.py",
+    "impacket_tool_kerb": "GetUserSPNs.py"
+  }
+}

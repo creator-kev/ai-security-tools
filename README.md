@@ -103,6 +103,66 @@ The scanner produces:
 - **Certipy commands** ready to copy/paste for exploitation
 - **Severity classification** (CRITICAL/HIGH/MEDIUM/LOW) per finding
 
+## 🔐 Kerberos Scanner
+
+The framework includes a Kerberos audit scanner that detects ASREPRoast, Kerberoast, and delegation abuse vectors in Active Directory environments. Read-only — no lateral movement.
+
+```
+Domain Controller (LDAP)
+    │
+    ├──▶ ASREPRoast ──▶ Accounts without pre-auth (hashcat 18200)
+    ├──▶ Kerberoast ──▶ Accounts with SPNs (hashcat 13100/19700/19800)
+    └──▶ Delegation Audit ──▶ Unconstrained / Constrained / RBCD
+    │
+    ▼
+JSON Report + Hashcat-formatted hashes
+```
+
+### Kerberos Module Usage
+
+**Via CLI:**
+```bash
+# Full audit (all modes)
+python -m src.kerberos_scanner
+
+# Single mode
+python -m src.kerberos_scanner asreproast
+python -m src.kerberos_scanner kerberoast
+python -m src.kerberos_scanner delegation
+
+# With explicit flags
+python -m src.kerberos_scanner kerberoast \
+  --dc-ip 10.0.0.1 \
+  --domain corp.local \
+  --username lowpriv \
+  --password P@ssw0rd \
+  --json-out ~/pentest/results/kerberoast_lab.json
+```
+
+**Via Python API:**
+```python
+from src.kerberos_scanner import KerberosScanner, ScanMode
+
+scanner = KerberosScanner(
+    config_path="~/pentest/config/api_keys.conf",
+    output_dir="~/pentest/results/kerberos",
+)
+
+all_result = scanner.scan(ScanMode.ALL)
+scanner.to_json(all_result, "~/pentest/results/kerberos/full_audit.json")
+```
+
+### Kerberos Scanner Output
+
+- **JSON report** per mode / combined `all` mode
+- **Terminal table** via Rich for human-readable summaries
+- **Hashcat-ready** hashes with correct mode tags
+- **Delegation findings** with computer names, UAC flags, and SPNs
+
+See `docs/kerberos.md` for full documentation, troubleshooting, and extending the scanner.
+
+[comment]: # (Kerberos section — keep after AD CS, before Quick Start)
+
 ## 🚀 Quick Start
 
 ### Installation
