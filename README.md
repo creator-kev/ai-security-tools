@@ -163,6 +163,49 @@ See `docs/kerberos.md` for full documentation, troubleshooting, and extending th
 
 [comment]: # (Kerberos section — keep after AD CS, before Quick Start)
 
+## ☁️ Cloud Scanner
+
+The framework includes an AWS cloud security scanner that audits IAM configurations for common misconfigurations and privilege escalation risks. Read-only — no state changes.
+
+```
+AWS Account
+    │
+    ├──▶ IAM Users ──▶ MFA, password policy, access keys
+    ├──▶ IAM Roles ──▶ Trust policies, wildcard principals
+    ├──▶ IAM Policies ──▶ Wildcards, overly broad permissions
+    ├──▶ S3 Buckets ──▶ Public ACLs, bucket policies
+    └──▶ CloudTrail ──▶ Enablement, multi-region coverage
+    │
+    ▼
+JSON Report + Severity Classified Findings
+```
+
+### Cloud Scanner Usage
+
+**Via CLI:**
+```bash
+python -m scanners.cloud_scanner
+```
+
+**Via Python API:**
+```python
+from scanners import CloudScanner
+
+scanner = CloudScanner()
+result = scanner.scan()
+
+for finding in result.findings:
+    print(f"[{finding.severity}] {finding.title}")
+    print(f"  Resource: {finding.resource}")
+    print(f"  Remediation: {finding.remediation}")
+```
+
+### Cloud Scanner Output
+
+- **JSON report** with findings, account ID, and scan metadata
+- **Severity classification** (CRITICAL / HIGH / MEDIUM / LOW / INFO)
+- **Resource ARNs** for each finding to support automation
+
 ## 🚀 Quick Start
 
 ### Installation
